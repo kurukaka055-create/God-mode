@@ -1,0 +1,277 @@
+-- =====================================================================
+--               MISTER X HUB - UNDETECTED GOD & KILL AURA
+-- =====================================================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+    RootPart = char:WaitForChild("HumanoidRootPart")
+end)
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+local attackMobRemote = Events:WaitForChild("attackMobRemote")
+local meleeHitRemote = Events:WaitForChild("meleeHitRemote")
+local collectRemote = Events:WaitForChild("collectResourceRemote")
+local EntitiesFolder = Workspace:WaitForChild("Game"):WaitForChild("Entities")
+
+local Toggles = {
+    KillAura = false,
+    GodMode = false,
+    AutoChest = false,
+    AutoCollect = false,
+    InfStamina = false
+}
+
+local Settings = {
+    KillAuraRange = 25
+}
+
+-- Anti-Damage Metamethod Hook
+pcall(function()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if Toggles.GodMode and (method == "FireServer" or method == "InvokeServer") then
+            if self.Name == "mobRangedHitRemote" or self.Name == "rangedHitRemote" or (self.Name == "meleeHitRemote" and args[1] == Character) then
+                return nil
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
+end)
+
+local function getNearbyEntities(range)
+    local list = {}
+    if not RootPart then return list end
+    for _, mob in ipairs(EntitiesFolder:GetChildren()) do
+        local hrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+        if hrp then
+            local dist = (RootPart.Position - hrp.Position).Magnitude
+            if dist <= range then
+                table.insert(list, {Mob = mob, HRP = hrp, Dist = dist})
+            end
+        end
+    end
+    return list
+end
+
+-- Stealth / Mob Ignore Engine
+local stealthConnection = nil
+local function toggleStealthGodMode(state)
+    if state then
+        stealthConnection = RunService.Heartbeat:Connect(function()
+            if Character and Toggles.GodMode then
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanQuery = false
+                        part.CanTouch = false
+                    end
+                end
+                
+                local hum = Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.PlatformStand = false
+                    hum.Sit = false
+                end
+            end
+        end)
+    else
+        if stealthConnection then
+            stealthConnection:Disconnect()
+            stealthConnection = nil
+        end
+        if Character then
+            for _, part in ipairs(Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanQuery = true
+                    part.CanTouch = true
+                end
+            end
+        end
+    end
+end
+
+-- Kill Aura Loop
+task.spawn(function()
+    while true do
+        if Toggles.KillAura and RootPart then
+            local targets = getNearbyEntities(Settings.KillAuraRange)
+            for _, entry in ipairs(targets) do
+                pcall(function()
+                    attackMobRemote:FireServer(entry.Mob)
+                    meleeHitRemote:FireServer(entry.Mob, entry.HRP.Position)
+                end)
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Auto Collect & Chests
+task.spawn(function()
+    while true do
+        if (Toggles.AutoChest or Toggles.AutoCollect) and RootPart then
+            pcall(function()
+                local dropped = Workspace.Game:FindFirstChild("DroppedItems")
+                if dropped and Toggles.AutoCollect then
+                    for _, item in ipairs(dropped:GetChildren()) do
+                        local part = item:FindFirstChildWhichIsA("BasePart")
+                        if part and (RootPart.Position - part.Position).Magnitude <= 30 then
+                            collectRemote:FireServer(item)
+                        end
+                    end
+                end
+                
+                local chestFolder = Workspace.Game:FindFirstChild("Chest")
+                if chestFolder and Toggles.AutoChest then
+                    local chestRemote = ReplicatedStorage.Engine.Service.ChestService:FindFirstChild("RequestOpenEvent")
+                    if chestRemote then
+                        for _, chest in ipairs(chestFolder:GetChildren()) do
+                            local part = chest:FindFirstChildWhichIsA("BasePart")
+                            if part and (RootPart.Position - part.Position).Magnitude <= 25 then
+                                chestRemote:FireServer(chest)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.4)
+    end
+end)
+
+-- GUI Setup
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MisterX_Hub"
+ScreenGui.ResetOnSpawn = false
+
+pcall(function()
+    if syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+    elseif gethui then
+        ScreenGui.Parent = gethui()
+    else
+        ScreenGui.Parent = game:GetService("CoreGui")
+    end
+end)
+
+if not ScreenGui.Parent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local Main = Instance.new("Frame")
+Main.Name = "MainFrame"
+Main.Size = UDim2.new(0, 260, 0, 320)
+Main.Position = UDim2.new(0.05, 0, 0.25, 0)
+Main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner", Main)
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local UIStroke = Instance.new("UIStroke", Main)
+UIStroke.Color = Color3.fromRGB(130, 0, 255)
+UIStroke.Thickness = 1.6
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 38)
+Title.BackgroundColor3 = Color3.fromRGB(22, 20, 30)
+Title.Text = "★ MISTER X - HUB ★"
+Title.TextColor3 = Color3.fromRGB(220, 180, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.GothamBold
+Title.Parent = Main
+
+local TitleCorner = Instance.new("UICorner", Title)
+TitleCorner.CornerRadius = UDim.new(0, 8)
+
+local Container = Instance.new("ScrollingFrame")
+Container.Size = UDim2.new(1, -16, 1, -50)
+Container.Position = UDim2.new(0, 8, 0, 44)
+Container.BackgroundTransparency = 1
+Container.BorderSizePixel = 0
+Container.ScrollBarThickness = 3
+Container.ScrollBarImageColor3 = Color3.fromRGB(130, 0, 255)
+Container.CanvasSize = UDim2.new(0, 0, 0, 260)
+Container.Parent = Main
+
+local UIListLayout = Instance.new("UIListLayout", Container)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 6)
+
+local function createButton(name, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 34)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    btn.Text = name .. " : OFF"
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamSemibold
+    btn.BorderSizePixel = 0
+    btn.Parent = Container
+
+    local corner = Instance.new("UICorner", btn)
+    corner.CornerRadius = UDim.new(0, 6)
+
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(50, 45, 70)
+    stroke.Thickness = 1
+
+    local enabled = false
+    btn.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        if enabled then
+            btn.BackgroundColor3 = Color3.fromRGB(110, 0, 210)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Text = name .. " : ON"
+            stroke.Color = Color3.fromRGB(180, 80, 255)
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            btn.Text = name .. " : OFF"
+            stroke.Color = Color3.fromRGB(50, 45, 70)
+        end
+        callback(enabled)
+    end)
+    return btn
+end
+
+createButton("Kill Aura", function(state)
+    Toggles.KillAura = state
+end)
+
+createButton("God Mode (Undetected)", function(state)
+    Toggles.GodMode = state
+    toggleStealthGodMode(state)
+end)
+
+createButton("Auto Open Chests", function(state)
+    Toggles.AutoChest = state
+end)
+
+createButton("Auto Collect Drops", function(state)
+    Toggles.AutoCollect = state
+end)
+
+createButton("Infinite Stamina", function(state)
+    Toggles.InfStamina = state
+    if state then
+        pcall(function()
+            local sprintRemote = ReplicatedStorage.Engine.Player.Sprint.updSprintStateRemote
+            sprintRemote:FireServer(true)
+        end)
+    end
+end)
